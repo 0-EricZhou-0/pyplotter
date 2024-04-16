@@ -9,14 +9,14 @@ if TYPE_CHECKING:
 import numpy.typing as npt
 
 import numpy as np
-import math
 
 _legacy_data_gen_compname = Logger().register_component(__file__)
 
 def dump(settings_list: list[list[str]], data: npt.NDArray[Any], fp: SupportsWrite[str], verbose=False, float_precision=3, **kwargs) -> None:
     data_ndim = len(settings_list)
     data_dim_lens = [len(dim) for dim in settings_list]
-    assert data_ndim == len(data.shape)
+    # TODO: write assert message here
+    assert data_ndim == len(data.shape), f"{data_ndim} {len(data.shape)}"
     assert tuple(data_dim_lens) == tuple(data.shape), f"{data_dim_lens} {data.shape}"
 
     def format_element(d: Any, field_len: int=0) -> str:
@@ -34,6 +34,7 @@ def dump(settings_list: list[list[str]], data: npt.NDArray[Any], fp: SupportsWri
         len(format_element(d))
         for _, d in np.ndenumerate(data)
     ]) if verbose else 0
+
     fp.write(f"""{"|".join(settings_list[0])}""")
     if data_ndim == 1:
         fp.write(f"""\n\n{" ".join([format_element(d, data_field_len) for d in data[:]])}""")
@@ -48,5 +49,5 @@ def dump(settings_list: list[list[str]], data: npt.NDArray[Any], fp: SupportsWri
                 fp.write(f"\n{settings_list[2][dim3_idx]:{setting_field_len}} ")
                 fp.write(f"""{" ".join([format_element(d, data_field_len) for d in data[:, dim2_idx, dim3_idx]])}""")
     else:
-        Logger().log(_legacy_data_gen_compname, logging.ERROR,
+        assert False, Logger().log(_legacy_data_gen_compname, logging.ERROR,
             f"Legacy data generator does not support input dimension > 3, get {data_ndim}")
