@@ -5,7 +5,8 @@ import pyplotter.utils.colored_print as cp
 import pyplotter.utils.generic as gutils
 
 import json, logging, enum, itertools, copy, ast
-from typing import TYPE_CHECKING, Any, Callable, Final, Sequence, Generator
+from types import EllipsisType
+from typing import TYPE_CHECKING, Any, Callable, Final, Sequence
 if TYPE_CHECKING:
     from _typeshed import SupportsRead, SupportsWrite
 import numpy.typing as npt
@@ -16,7 +17,7 @@ _multidim_parser_compname = Logger().register_component(__file__)
 
 class MultiDimDataRepresentation():
     sort_rule_type: Final = Callable[[list[str]], list[str]]
-    slice_index_type: Final = slice | Sequence[str] | str | None
+    slice_index_type: Final = slice | Sequence[str] | str | EllipsisType
 
     @classmethod
     def check_json_format(cls, json: dict) -> None:
@@ -122,55 +123,61 @@ class MultiDimDataRepresentation():
     def get_data(self, str_idx_list: Sequence[str]) -> Any:
         return self.__get_data(self.__get_int_idx_list(str_idx_list))
 
+    def __slice_to_item_keys(self, keys: MultiDimDataRepresentation.slice_index_type | Sequence[MultiDimDataRepresentation.slice_index_type]) -> Sequence[MultiDimDataRepresentation.slice_index_type]:
+        if not isinstance(keys, tuple):
+            # indexing a single dim, wrap it with a sequence
+            return (keys, ) # type:ignore
+        else:
+            return keys
+
     def __parse_item_index_dim(self, dim_idx: int,
                                key: MultiDimDataRepresentation.slice_index_type) -> tuple[int, ...]:
         try:
-            if key is None:
-                return tuple(range(len(self.__setting_names[dim_idx])))
+            ret_idx = ()
+            if key is ...:
+                ret_idx = tuple(range(len(self.__setting_names[dim_idx])))
             elif isinstance(key, str):
-                return (self.__get_int_idx_default(key, dim_idx), )
+                ret_idx = (self.__get_int_idx_default(key, dim_idx), )
             elif isinstance(key, slice):
                 if key.start is not None or key.stop is not None:
                     raise NotImplementedError(f"Slice start and stop {(key.start, key.stop)} not supported, accepts (None, None) only")
-                if key is None or key.step == 1:
-                    return tuple(range(len(self.__setting_names[dim_idx])))
+                if key.step is None or key.step == 1:
+                    ret_idx = tuple(range(len(self.__setting_names[dim_idx])))
                 elif key.step == -1:
-                    return tuple(reversed(range(len(self.__setting_names[dim_idx]))))
+                    ret_idx = tuple(reversed(range(len(self.__setting_names[dim_idx]))))
                 else:
-                    raise NotImplementedError(f"Slice step {key.step} not supported, accepts 1 or -1 only")
+                    raise NotImplementedError(f"Slice step {key.step} not supported, accepts None, 1, or -1 only")
             elif isinstance(key, Sequence):
-                return tuple(self.__get_int_idx_default(k, dim_idx) for k in key)
+                assert all(isinstance(k, str) for k in key), f"Not supported index sequence {key}, non-string index found"
+                ret_idx = tuple(self.__get_int_idx_default(k, dim_idx) for k in key)
             else:
                 raise NotImplementedError(f"Not supported index type {type(key)}")
+            if -1 in ret_idx:
+                raise ValueError(f"Index {key} not found in array")
+            return ret_idx
         except Exception as e:
-            assert False, Logger().log(_multidim_parser_compname, logging.ERROR,
-                f"Indexing error: {e}"
-            )
+            error_msg = f"[{type(e).__name__}] {e}"
+        assert False, Logger().log(_multidim_parser_compname, logging.ERROR,
+            f"Indexing error in dimension {dim_idx}: {error_msg}"
+        )
 
-    def __getitem__(self, keys: MultiDimDataRepresentation.slice_index_type | Sequence[MultiDimDataRepresentation.slice_index_type]) -> Any:
-        raise NotImplementedError()
-        if isinstance(keys, slice) or isinstance(keys, str) or \
-           (isinstance(keys, Sequence) and len(keys) > 0 and not isinstance(keys[0], Sequence)):
-            # single dim
-            pass
-        else:
-            if len(keys) != self.__ndim:
-                keys = [*keys, *[None for _ in range(self.__ndim - len(keys))]]
-            item_int_idxs: tuple[int, ...] = tuple(
-                self.__parse_item_index_dim(dim_idx, key)
-                for dim_idx, key in enumerate(keys)
-            )
+    def __getitem__(self, keys: MultiDimDataRepresentation.slice_index_type | Sequence[MultiDimDataRepresentation.slice_index_type]) -> npt.NDArray[Any]:
+        keys_list: Sequence[MultiDimDataRepresentation.slice_index_type] = self.__slice_to_item_keys(keys)
+        if len(keys_list) != self.__ndim:
+            keys_list = (*keys_list, *[... for _ in range(self.__ndim - len(keys_list))])
+        item_int_idxs: Sequence[Sequence[int]] = tuple(
+            self.__parse_item_index_dim(dim_idx, key)
+            for dim_idx, key in enumerate(keys_list)
+        )
         dim_lens = tuple(len(item_int_idx) for item_int_idx in item_int_idxs)
         return_nparr = np.zeros(dim_lens, dtype=object)
-        print(keys, list(item_int_idxs), return_nparr.shape)
-        for idx_list in itertools.product(*[range(n) for n in override_dim_lens]):
-            override_idx_list: tuple[int, ...] = tuple(orig_idx if not override else idx_list[dim_idx]
-                for dim_idx, (orig_idx, override) in enumerate(zip(int_idx_list, override_dims))
-            )
-            return_nparr[idx_list] = self.__get_data(override_idx_list)
-        print(list(item_int_idxs))
-        return None
+        for idxs_list in itertools.product(*[enumerate(item_int_idx) for item_int_idx in  item_int_idxs]):
+            dst_idxs = tuple(idxs[0] for idxs in idxs_list)
+            src_idxs = tuple(idxs[1] for idxs in idxs_list)
+            return_nparr[dst_idxs] = self.__get_data(src_idxs)
+        return np.squeeze(return_nparr)
 
+    # TODO: refactor this, function is replaced by __getitem__
     def get_data_slice(self, str_idx_list: list[str | None] | tuple[str | None, ...]) -> npt.NDArray[Any]:
         override_dims: list[bool] = [str_idx == None for str_idx in str_idx_list]
         override_dim_lens: list[int] = [
@@ -187,6 +194,7 @@ class MultiDimDataRepresentation():
             return_nparr[idx_list] = self.__get_data(override_idx_list)
         return return_nparr
 
+    # TODO: refactor this
     def get_setting_name_slice(self, str_idx_list: list[str | None] | tuple[str | None, ...]) -> list[list[str]]:
         override_dims: list[bool] = [str_idx == None for str_idx in str_idx_list]
         return [
@@ -194,6 +202,22 @@ class MultiDimDataRepresentation():
             for dim_idx, override in enumerate(override_dims)
             if override
         ]
+
+    # TODO: change the name of this function, or maybe refactor get_setting_name_slice instead
+    def get_setting_name_slice_arr(self, keys: MultiDimDataRepresentation.slice_index_type | Sequence[MultiDimDataRepresentation.slice_index_type]) -> list[list[str]]:
+        keys_list: Sequence[MultiDimDataRepresentation.slice_index_type] = self.__slice_to_item_keys(keys)
+        item_int_idxs: Sequence[Sequence[int]] = tuple(
+            self.__parse_item_index_dim(dim_idx, key)
+            for dim_idx, key in enumerate(keys_list)
+        )
+        # TODO: this is super inefficient, change this by adding a key list cache
+        return [
+            [list(self.__setting_names[dim_idx].keys())[setting_idx] for setting_idx in setting_idxs]
+            for dim_idx, setting_idxs in enumerate(item_int_idxs)
+            if len(setting_idxs) != 1
+        ]
+
+    # TODO: add a function to return a view of a sub-multidim-repr
 
     def erase_data(self, str_idx_list: Sequence[str]) -> Any:
         int_idx_list: tuple[int, ...] = self.__get_int_idx_list(str_idx_list)
