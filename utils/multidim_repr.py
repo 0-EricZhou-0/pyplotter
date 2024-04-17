@@ -15,7 +15,7 @@ import numpy as np
 
 _multidim_parser_compname = Logger().register_component(__file__)
 
-class MultiDimDataRepresentation():
+class NamedArray():
     sort_rule_type: Final = Callable[[list[str]], list[str]]
     slice_index_type: Final = slice | Sequence[str] | str | EllipsisType
 
@@ -33,7 +33,7 @@ class MultiDimDataRepresentation():
         assert all([isinstance(arr, list)] for arr in json[json_property])
         assert all([len(arr) > 0 for arr in json[json_property]])
 
-        # json_property = f"{MultiDimDataRepresentation.last_dim_name}_unit"
+        # json_property = f"{NamedArray.last_dim_name}_unit"
         # assert json_property in json
         # assert type(json[json_property] is list)
         # assert len(json[json_property]) == len(json["setting_names"][-1])
@@ -43,11 +43,11 @@ class MultiDimDataRepresentation():
 
     # python is so garbage it does not have a nice way to overload functions, this is work around
     @classmethod
-    def from_dim_names(cls, dim_names: Sequence[str]) -> MultiDimDataRepresentation:
+    def from_dim_names(cls, dim_names: Sequence[str]) -> NamedArray:
         return cls(dim_names=dim_names)
 
     @classmethod
-    def from_input_file(cls, fp: SupportsRead[str | bytes], **kwargs) -> MultiDimDataRepresentation:
+    def from_input_file(cls, fp: SupportsRead[str | bytes], **kwargs) -> NamedArray:
         return cls(fp=fp, **kwargs)
 
     def __init__(self, dim_names=None, fp=None, **kwargs) -> None:
@@ -66,7 +66,7 @@ class MultiDimDataRepresentation():
                 f"There should be at least one dimension exist")
         self.__dim_names: list[str] = list(dim_names)
         self.__setting_names: list[dict[str, int]] = [{} for _ in self.__dim_names]
-        self.__setting_sort_rules: list[None | MultiDimDataRepresentation.sort_rule_type] = [
+        self.__setting_sort_rules: list[None | NamedArray.sort_rule_type] = [
             None for _ in self.__dim_names
         ]
         self.__data: dict[tuple[int, ...], Any] = dict()
@@ -123,7 +123,7 @@ class MultiDimDataRepresentation():
     def get_data(self, str_idx_list: Sequence[str]) -> Any:
         return self.__get_data(self.__get_int_idx_list(str_idx_list))
 
-    def __slice_to_item_keys(self, keys: MultiDimDataRepresentation.slice_index_type | Sequence[MultiDimDataRepresentation.slice_index_type]) -> Sequence[MultiDimDataRepresentation.slice_index_type]:
+    def __slice_to_item_keys(self, keys: NamedArray.slice_index_type | Sequence[NamedArray.slice_index_type]) -> Sequence[NamedArray.slice_index_type]:
         if not isinstance(keys, tuple):
             # indexing a single dim, wrap it with a sequence
             return (keys, ) # type:ignore
@@ -131,7 +131,7 @@ class MultiDimDataRepresentation():
             return keys
 
     def __parse_item_index_dim(self, dim_idx: int,
-                               key: MultiDimDataRepresentation.slice_index_type) -> tuple[int, ...]:
+                               key: NamedArray.slice_index_type) -> tuple[int, ...]:
         try:
             ret_idx = ()
             if key is ...:
@@ -161,8 +161,8 @@ class MultiDimDataRepresentation():
             f"Indexing error in dimension {dim_idx}: {error_msg}"
         )
 
-    def __getitem__(self, keys: MultiDimDataRepresentation.slice_index_type | Sequence[MultiDimDataRepresentation.slice_index_type]) -> npt.NDArray[Any]:
-        keys_list: Sequence[MultiDimDataRepresentation.slice_index_type] = self.__slice_to_item_keys(keys)
+    def __getitem__(self, keys: NamedArray.slice_index_type | Sequence[NamedArray.slice_index_type]) -> npt.NDArray[Any]:
+        keys_list: Sequence[NamedArray.slice_index_type] = self.__slice_to_item_keys(keys)
         if len(keys_list) != self.__ndim:
             keys_list = (*keys_list, *[... for _ in range(self.__ndim - len(keys_list))])
         item_int_idxs: Sequence[Sequence[int]] = tuple(
@@ -204,8 +204,8 @@ class MultiDimDataRepresentation():
         ]
 
     # TODO: change the name of this function, or maybe refactor get_setting_name_slice instead
-    def get_setting_name_slice_arr(self, keys: MultiDimDataRepresentation.slice_index_type | Sequence[MultiDimDataRepresentation.slice_index_type]) -> list[list[str]]:
-        keys_list: Sequence[MultiDimDataRepresentation.slice_index_type] = self.__slice_to_item_keys(keys)
+    def get_setting_name_slice_arr(self, keys: NamedArray.slice_index_type | Sequence[NamedArray.slice_index_type]) -> list[list[str]]:
+        keys_list: Sequence[NamedArray.slice_index_type] = self.__slice_to_item_keys(keys)
         item_int_idxs: Sequence[Sequence[int]] = tuple(
             self.__parse_item_index_dim(dim_idx, key)
             for dim_idx, key in enumerate(keys_list)
@@ -228,12 +228,12 @@ class MultiDimDataRepresentation():
         output_dict["dim_names"] = self.__dim_names
         output_dict["setting_names"] = self.__setting_names
         output_dict["data"] = { str(k): v for k, v in self.__data.items() }
-        MultiDimDataRepresentation.check_json_format(output_dict)
+        NamedArray.check_json_format(output_dict)
         return output_dict
 
     def load(self, fp: SupportsRead[str | bytes], **kwargs) -> None:
         input_dict: dict = json.load(fp, **kwargs)
-        MultiDimDataRepresentation.check_json_format(input_dict)
+        NamedArray.check_json_format(input_dict)
         self.__init_from_dim_names(input_dict["dim_names"])
         self.__setting_names: list[dict[str, int]] = input_dict["setting_names"]
         self.__data: dict[tuple[int, ...], Any] = dict()
@@ -298,7 +298,7 @@ class MultiDimDataRepresentation():
         PRIORITIZE_OTHER = 1
         ERROR_ON_CONFLICT = 2
 
-    def merge(self, other: MultiDimDataRepresentation, merge_rule: MergeRules=MergeRules.PRIORITIZE_THIS) -> None:
+    def merge(self, other: NamedArray, merge_rule: MergeRules=MergeRules.PRIORITIZE_THIS) -> None:
         assert self.__ndim == other.__ndim, Logger().log(_multidim_parser_compname, logging.ERROR,
                 f"Dimension name length mismatch Expected length: {self.__ndim} Actual length: {other.__ndim}")
         other_str_idx_dict_view: list[list[str]] = [
@@ -312,11 +312,11 @@ class MultiDimDataRepresentation():
             ]
             this_data = self.get_data(other_str_idx_list)
             if this_data is not None and this_data != other_data:
-                log_level: int = logging.ERROR if merge_rule == MultiDimDataRepresentation.MergeRules.ERROR_ON_CONFLICT else \
+                log_level: int = logging.ERROR if merge_rule == NamedArray.MergeRules.ERROR_ON_CONFLICT else \
                                  logging.WARNING
                 cp.lprintf(log_level, Logger().log(_multidim_parser_compname, log_level,
                         f"Merge conflit on key {other_str_idx_list} This data: <{this_data}> Merging data: <{other_data}>"
                 ))
                 assert log_level != logging.ERROR
-                if merge_rule is not MultiDimDataRepresentation.MergeRules.PRIORITIZE_THIS:
+                if merge_rule is not NamedArray.MergeRules.PRIORITIZE_THIS:
                     self.insert_data(other_str_idx_list, other_data)

@@ -96,9 +96,9 @@ class CalculatedDimensionParser(SectionParser):
         var = variance
         standard_deviation = enum.auto()
         std = standard_deviation
-    def __init__(self, data_representation: mdr.MultiDimDataRepresentation) -> None:
+    def __init__(self, data_representation: mdr.NamedArray) -> None:
         super().__init__("Calculated Dimension")
-        self.__data_representation: mdr.MultiDimDataRepresentation = data_representation
+        self.__data_representation: mdr.NamedArray = data_representation
 
     def on_section_begin(self):
         pass
