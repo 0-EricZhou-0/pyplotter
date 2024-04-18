@@ -22,8 +22,11 @@ class SerializeParser:
         assert dim_idx < len(self.__match_rules)
         if isinstance(attribute_list, str):
             attribute_list = [attribute_list]
-        if regex:
-            assert len(attribute_list) == 1
+        if regex and len(attribute_list) > 1:
+            assert all([
+                re.compile(attribute).groups == 0
+                for attribute in attribute_list
+            ]), "capturing groups are not allowed in regex mode"
         self.__match_rules[dim_idx] = \
             fr"""(?:^|{self.__separator})({"|".join([
                 re.escape(attribute) if not regex else attribute
