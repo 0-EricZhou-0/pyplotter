@@ -135,7 +135,7 @@ class SettingsParser(SectionParser):
     def on_parser_finish(self) -> None:
         pass
 
-def default_line_parser(line: str) -> list[tuple[str, Any]]:
+def default_line_parser(line: str, state: dict={}) -> list[tuple[str, Any]]:
     result = re.match(r"(?:.*:)?\s*([^:]*):\s*(.*)\s*", line)
     if result is not None and len(result.groups()) >= 2:
         measurement_name = " ".join(
@@ -154,23 +154,40 @@ def default_line_parser(line: str) -> list[tuple[str, Any]]:
             return [(measurement_name, measurement_val)]
     return []
 
-def default_final_data_parser(data: dict[str, Any]) -> dict[str, Any]:
+def default_final_data_parser(data: dict[str, Any], state: dict={}) -> dict[str, Any]:
     return data
 
 class StatParser(SectionParser):
     def __init__(self,
-                 line_parser: Callable[[str], list[tuple[str, Any]]]=default_line_parser,
-                 final_data_parser: Callable[[dict[str, Any]], dict[str, Any]]=default_final_data_parser) -> None:
+                 line_parser: Callable[[str, dict], list[tuple[str, Any]]]=default_line_parser,
+                 final_data_parser: Callable[[dict[str, Any], dict], dict[str, Any]]=default_final_data_parser,
+                 initial_state: dict={}) -> None:
         super().__init__("Stats")
         self.__dataset: dict[str, Any] = dict()
-        self.__line_parser: Callable[[str], list[tuple[str, Any]]] = line_parser
-        self.__final_data_parser: Callable[[dict[str, Any]], dict[str, Any]] = final_data_parser
+        self.__line_parser: Callable[[str, dict], list[tuple[str, Any]]] = line_parser
+        self.__final_data_parser: Callable[[dict[str, Any], dict], dict[str, Any]] = final_data_parser
+        self.__state = {
+            "total_section_no": 0,
+            "total_line_no": 0,
+            "total_non_empty_line_no": 0,
+            "section_line_no": 0,
+            "section_non_empty_line_no": 0,
+        }
+        self.__state.update(initial_state)
 
     def on_section_begin(self) -> None:
-        pass
+        self.__state["total_section_no"] += 1
+        self.__state["section_line_no"] = 0
+        self.__state["section_non_empty_line_no"] = 0
 
     def on_section_line(self, line: str) -> None:
-        stats: list[tuple[str, Any]] = self.__line_parser(line)
+        line_non_empty = len(line) == 0
+        self.__state["total_line_no"] += 1
+        self.__state["total_non_empty_line_no"] += line_non_empty
+        self.__state["section_line_no"] += 1
+        self.__state["section_non_empty_line_no"] += line_non_empty
+
+        stats: list[tuple[str, Any]] = self.__line_parser(line, self.__state)
         for measurement_name, measurement_val in stats:
             self.__dataset[measurement_name] = measurement_val
 
@@ -178,7 +195,10 @@ class StatParser(SectionParser):
         pass
 
     def on_parser_finish(self) -> None:
-        self.__dataset = self.__final_data_parser(self.__dataset)
+        self.__dataset = self.__final_data_parser(self.__dataset, self.__state)
+
+    def reset_internal_state(self) -> None:
+        self.__state.clear()
 
     def get_dataset(self) -> dict[str, Any]:
         return self.__dataset
