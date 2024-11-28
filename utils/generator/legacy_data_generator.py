@@ -21,6 +21,7 @@ def dump(settings_list: list[list[str]], data: npt.NDArray[Any], fp: SupportsWri
 
     def format_element(d: Any, field_len: int=0) -> str:
         return_str: str = d if isinstance(d, str) else \
+                          "None" if d is None else \
                           str(np.nan) if np.isnan(d) else \
                           str(np.inf) if np.isinf(d) else \
                           f"{d:.{float_precision}f}"
